@@ -104,3 +104,4 @@ $$
 - Yang, J., & Zhang, C. (2021). pbSGD: Powered Stochastic Gradient Descent Methods for Accelerated Non-Convex Optimization. Journal of Machine Learning Research, 22(1), 1-27. https://doi.org/10.1234/jmlr.2021.123456
 - Robbins, H., & Monro, S. (1951). A stochastic approximation method. The Annals of Mathematical Statistics, 22(3), 400–407. https://doi.org/10.1214/aoms/1177729586
 - Bernstein, J., Wang, Y.-X., Azizzadenesheli, K., & Anandkumar, A. (2018). signSGD: Compressed optimisation for non‐convex problems [Preprint]. arXiv. https://arxiv.org/abs/1802.04434
+
