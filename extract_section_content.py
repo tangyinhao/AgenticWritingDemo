@@ -2,25 +2,18 @@
 # -*- coding: utf-8 -*-
 
 """
-将大纲 Markdown + 原文 Markdown 组装为嵌套 JSON。
-- 大纲最多到三级标题（# / ## / ###），每个节内可包含 <tag>...</tag> 作为章节写作摘要
-- 叶子节点（无子标题）需从原文中抽取对应完整内容（该标题以下直到下一个同级或更高标题之前的所有原文）
-- 输出结构为嵌套字典：
-    {
-      "title": "...",
-      "tag": "...",
-      "children": [
-        { ... },
-        ...
-      ]
-      # 对于叶子节点，还会有：
-      "content": "原文对应内容",
-      "children": []
-    }
+将大纲 Markdown + 原文 Markdown 组装为嵌套 JSON，并支持批量遍历目录（扁平 case* 结构版）：
+- 根目录下直接放置若干个 case 目录（如：case0 / case1 / case2 / ...）
+- 每个 case 目录内包含：
+    - outline.md（含 #/##/### 与可选 <tag>...</tag>）
+    - full_content.md（原文）
+    - 输出默认写为 section_content.json
 
-用法：
-    python build_outline_json.py outline.md original.md -o structure.json
-不加 -o 则打印到 stdout
+用法示例：
+    python build_outline_json.py --root 数据集根目录路径
+可选（覆盖默认文件名）：
+    python build_outline_json.py --root 数据集根目录路径 \
+        --outline-name outline.md --original-name full_content.md --output-name section_content.json
 """
 
 import argparse
@@ -34,46 +27,26 @@ from typing import List, Dict, Any, Tuple, Optional
 HEADING_RE = re.compile(r'^(#{1,6})\s*(.*?)\s*#*\s*$', re.M)
 
 def normalize_title(s: str) -> str:
-    """
-    归一化标题用于匹配：
-    - NFKC 规范化
-    - 全部小写
-    - 去掉 Markdown/行内代码/空白
-    - 去掉前缀编号（如 "1. "、"一、" 等常见形式）
-    - 去除标点与空格，仅保留字母数字与 CJK
-    """
     if s is None:
         return ""
     s = unicodedata.normalize("NFKC", s)
     s = s.strip()
-
-    # 去掉常见编号前缀（宽松处理）
     s = re.sub(r'^[\s\.\-–—＊*•·\(\)【】\[\]\{\}]+', '', s)
     s = re.sub(r'^\d+[\.\-、：:\)]\s*', '', s)
     s = re.sub(r'^[一二三四五六七八九十百千]+[、.．：:\)]\s*', '', s)
-
-    # 去掉行内代码反引号与加粗/斜体星号等
     s = s.replace('`', '').replace('*', '').replace('_', '')
-
-    # 小写
     s = s.lower()
-
-    # 仅保留字母数字与 CJK（把其他符号/空白去掉）
-    s = ''.join(ch for ch in s if (unicodedata.category(ch).startswith('L')  # Letter
-                                   or unicodedata.category(ch).startswith('N')  # Number
-                                   or '\u4e00' <= ch <= '\u9fff'))  # CJK
+    s = ''.join(ch for ch in s if (unicodedata.category(ch).startswith('L')
+                                   or unicodedata.category(ch).startswith('N')
+                                   or '\u4e00' <= ch <= '\u9fff'))
     return s
-
-# -----------------------------
-# 原文解析：构建标题树并切片内容
-# -----------------------------
 
 class DocNode:
     def __init__(self, title: str, level: int, start_idx: int):
         self.title = title
         self.level = level
-        self.start_idx = start_idx   # 在整篇文本中的行号（标题行）
-        self.end_idx: Optional[int] = None  # 结束行号（不含）
+        self.start_idx = start_idx  # 标题所在行号（0-based）
+        self.end_idx: Optional[int] = None
         self.children: List['DocNode'] = []
         self.parent: Optional['DocNode'] = None
 
@@ -85,24 +58,17 @@ class DocNode:
         return list(reversed(res))
 
 def parse_markdown_headings(md_text: str) -> Tuple[List[str], List[DocNode]]:
-    """
-    解析原文 Markdown 标题，返回 (行列表, 节点列表)
-    节点包含层级、起止行号，build_end_indices 后可切片内容
-    """
     lines = md_text.splitlines()
     matches = list(HEADING_RE.finditer(md_text))
-
     nodes: List[DocNode] = []
     for m in matches:
         hashes, title = m.group(1), m.group(2)
-        # 计算其行号（通过起始位置反推）
         start_pos = m.start()
         start_idx = md_text.count('\n', 0, start_pos)
         level = len(hashes)
         node = DocNode(title.strip(), level, start_idx)
         nodes.append(node)
 
-    # 构建父子关系（按层级用栈）
     stack: List[DocNode] = []
     for node in nodes:
         while stack and stack[-1].level >= node.level:
@@ -112,10 +78,8 @@ def parse_markdown_headings(md_text: str) -> Tuple[List[str], List[DocNode]]:
             stack[-1].children.append(node)
         stack.append(node)
 
-    # 计算 end_idx：下一个（同级或更高）标题的起始行号；最后一个到文末
     total_lines = len(lines)
     for i, node in enumerate(nodes):
-        # 找下一个 index j > i，满足 level <= node.level
         end_line = total_lines
         for j in range(i + 1, len(nodes)):
             if nodes[j].level <= node.level:
@@ -127,15 +91,13 @@ def parse_markdown_headings(md_text: str) -> Tuple[List[str], List[DocNode]]:
 
 def build_original_path_map(md_text: str) -> Dict[Tuple[str, ...], str]:
     """
-    为原文每个标题生成 '仅自身直辖内容' 的映射：
-    - 节点区间： [node.start_idx+1, node.end_idx)
-    - 子区间：   [child.start_idx, child.end_idx)
-    - 自身内容 = 节点区间 - 所有子区间 的并集（保持原顺序拼接）
+    为每个章节构造 content，满足：
+      - 必以“标题 + 换行”开头；
+      - 若正文非空：标题后接正文（父节仅包含到子节前的正文），末尾补换行；
+      - 若正文为空：仅“标题 + 换行”（仍保证末尾换行）。
     """
     lines, nodes = parse_markdown_headings(md_text)
     path_map: Dict[Tuple[str, ...], str] = {}
-
-    # 方便按开始行排序子节点
     for node in nodes:
         node.children.sort(key=lambda c: c.start_idx)
 
@@ -144,14 +106,13 @@ def build_original_path_map(md_text: str) -> Dict[Tuple[str, ...], str]:
     def slice_lines(a: int, b: int) -> str:
         if a >= b:
             return ""
-        # 去掉收尾多余空行，但保留段落内部换行
         return "\n".join(lines[a:b]).strip("\n")
 
     for node in nodes:
+        heading_line = lines[node.start_idx].rstrip("\n")
         start = node.start_idx + 1
         end = node.end_idx if node.end_idx is not None else total_lines
 
-        # 计算“自身”片段：父区间去除所有子区间
         segments: List[Tuple[int, int]] = []
         cursor = start
         for child in node.children:
@@ -161,18 +122,18 @@ def build_original_path_map(md_text: str) -> Dict[Tuple[str, ...], str]:
         if end > cursor:
             segments.append((cursor, end))
 
-        # 拼接自身片段（用空行分隔，避免硬粘连）
         pieces = [slice_lines(a, b) for (a, b) in segments if b > a]
-        content = "\n\n".join(p for p in pieces if p.strip() != "")
+        body = "\n\n".join(p for p in pieces if p.strip() != "").rstrip()
+
+        if body:
+            content = f"{heading_line}\n{body}\n"
+        else:
+            content = f"{heading_line}\n"
 
         norm_path = tuple(normalize_title(t) for t in node.path_titles())
         path_map[norm_path] = content
 
     return path_map
-
-# -----------------------------
-# 大纲解析：构建仅到 ### 的树，并提取 <tag> 内容
-# -----------------------------
 
 class OutlineNode:
     def __init__(self, title: str, level: int, tag: str = ""):
@@ -182,12 +143,7 @@ class OutlineNode:
         self.children: List['OutlineNode'] = []
 
     def to_json_like(self) -> Dict[str, Any]:
-        # content 字段只在叶子阶段补上，这里不放
-        return {
-            "title": self.title,
-            "tag": self.tag,
-            "children": [c.to_json_like() for c in self.children]
-        }
+        return {"title": self.title, "tag": self.tag, "children": [c.to_json_like() for c in self.children]}
 
 def parse_outline(outline_md: str) -> List[OutlineNode]:
     matches = list(HEADING_RE.finditer(outline_md))
@@ -197,13 +153,11 @@ def parse_outline(outline_md: str) -> List[OutlineNode]:
     nodes: List[Tuple[int, str, str]] = []
     for idx, m in enumerate(matches):
         hashes, title = m.group(1), m.group(2)
-        level = min(len(hashes), 3)  # 只保留到 ###
-
+        level = min(len(hashes), 3)
         start = m.end()
         end = matches[idx + 1].start() if idx + 1 < len(matches) else len(outline_md)
         block = outline_md[start:end]
 
-        # 一级标题强制忽略 <tag>
         if level == 1:
             tag_text = ""
         else:
@@ -226,41 +180,23 @@ def parse_outline(outline_md: str) -> List[OutlineNode]:
 
     return root_list
 
-# -----------------------------
-# 将大纲叶子与原文映射，填充 content
-# -----------------------------
-
 def attach_content_from_original(outline_roots: List[OutlineNode],
                                  original_path_map: Dict[Tuple[str, ...], str]) -> Dict[str, Any]:
-    """
-    所有节点均尝试填充 content：
-      1) 先按完整路径（规范化）匹配
-      2) 失败则回退到仅末尾标题匹配（取首个命中）
-      3) 仍失败则 content = ""
-    """
     def match_content(path_titles: List[str]) -> str:
         full_key = tuple(normalize_title(p) for p in path_titles)
         content = original_path_map.get(full_key)
         if content is not None:
             return content
-
-        # 末尾标题回退
         tail = normalize_title(path_titles[-1]) if path_titles else ""
         for k, v in original_path_map.items():
             if k and k[-1] == tail:
                 return v
-        # 未匹配
         print(f"[WARN] 未在原文中匹配到路径：{' > '.join(path_titles)}", file=sys.stderr)
         return ""
 
     def node_to_dict(node: OutlineNode, path: List[str]) -> Dict[str, Any]:
         current_path = path + [node.title]
-        js = {
-            "title": node.title,
-            "tag": node.tag,
-            "content": match_content(current_path),
-            "children": []
-        }
+        js = {"title": node.title, "tag": node.tag, "content": match_content(current_path), "children": []}
         if node.children:
             js["children"] = [node_to_dict(c, current_path) for c in node.children]
         return js
@@ -271,16 +207,7 @@ def attach_content_from_original(outline_roots: List[OutlineNode],
     if len(outline_roots) == 1:
         return node_to_dict(outline_roots[0], [])
     else:
-        return {
-            "title": "ROOT",
-            "tag": "",
-            "content": "",
-            "children": [node_to_dict(r, []) for r in outline_roots]
-        }
-
-# -----------------------------
-# 主流程
-# -----------------------------
+        return {"title": "ROOT", "tag": "", "content": "", "children": [node_to_dict(r, []) for r in outline_roots]}
 
 def build_structure(outline_path: str, original_path: str, output_path: Optional[str] = None) -> Dict[str, Any]:
     with open(outline_path, 'r', encoding='utf-8') as f:
@@ -293,20 +220,89 @@ def build_structure(outline_path: str, original_path: str, output_path: Optional
     result = attach_content_from_original(outline_roots, original_map)
 
     if output_path:
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(result, f, ensure_ascii=False, indent=2)
     return result
 
-def main():
-    parser = argparse.ArgumentParser(description="将大纲 Markdown 与原文 Markdown 组装为嵌套 JSON")
-    parser.add_argument("--outline", help="大纲 Markdown 文件路径（含 #/##/### 和 <tag>...）", default="文字叙述型文档/0/outline.md")
-    parser.add_argument("--original", help="原文 Markdown 文件路径", default="文字叙述型文档/0/full_content.md")
-    parser.add_argument("--output", help="输出 JSON 文件路径（缺省则打印到 stdout）", default="文字叙述型文档/0/section_content.json")
-    args = parser.parse_args()
+# -----------------------------
+# 批量遍历（扁平 case* 结构）
+# -----------------------------
 
-    result = build_structure(args.outline, args.original, args.output)
-    if not args.output:
-        print(json.dumps(result, ensure_ascii=False, indent=2))
+CASE_DIR_PAT = re.compile(r'^case(\d+)$', re.IGNORECASE)
+
+def is_case_dir(name: str) -> Optional[int]:
+    """
+    返回数字序号（int），若不是形如 case<number> 的目录名则返回 None。
+    """
+    m = CASE_DIR_PAT.match(name)
+    if not m:
+        return None
+    try:
+        return int(m.group(1))
+    except ValueError:
+        return None
+
+def process_root(root_dir: str,
+                 outline_name: str = "outline.md",
+                 original_name: str = "full_content.md",
+                 output_name: str = "section_content.json") -> None:
+    """
+    遍历 root_dir：
+      root_dir/
+        ├─ case0/
+        │   ├─ outline.md
+        │   ├─ full_content.md
+        │   └─ section_content.json (输出)
+        ├─ case1/
+        └─ case2/ ...
+    """
+    if not os.path.isdir(root_dir):
+        print(f"[ERROR] 根目录不存在或不是目录：{root_dir}", file=sys.stderr)
+        return
+
+    # 收集所有形如 case<number> 的目录，并按数字排序
+    case_entries = []
+    for name in os.listdir(root_dir):
+        case_idx = is_case_dir(name)
+        path = os.path.join(root_dir, name)
+        if case_idx is not None and os.path.isdir(path):
+            case_entries.append((case_idx, name))
+
+    if not case_entries:
+        print(f"[WARN] 根目录下未发现任何 case* 目录：{root_dir}", file=sys.stderr)
+        return
+
+    case_entries.sort(key=lambda x: x[0])
+
+    for idx, name in case_entries:
+        case_dir = os.path.join(root_dir, name)
+        outline_path = os.path.join(case_dir, outline_name)
+        original_path = os.path.join(case_dir, original_name)
+        output_path = os.path.join(case_dir, output_name)
+
+        if not os.path.isfile(outline_path):
+            print(f"[WARN] 缺少大纲：{outline_path}，已跳过。", file=sys.stderr)
+            continue
+        if not os.path.isfile(original_path):
+            print(f"[WARN] 缺少原文：{original_path}，已跳过。", file=sys.stderr)
+            continue
+
+        try:
+            build_structure(outline_path, original_path, output_path)
+            print(f"[OK] 已生成：{output_path}")
+        except Exception as e:
+            print(f"[ERROR] 处理失败：{case_dir}（{e}）", file=sys.stderr)
+
+def main():
+    parser = argparse.ArgumentParser(description="将大纲 Markdown 与原文 Markdown 组装为嵌套 JSON（扁平 case* 遍历版）")
+    parser.add_argument("--root", default="./", help="根目录路径，内部为若干 case* 目录")
+    parser.add_argument("--outline-name", default="outline.md", help="大纲文件名（默认：outline.md）")
+    parser.add_argument("--original-name", default="full_content.md", help="原文文件名（默认：full_content.md）")
+    parser.add_argument("--output-name", default="section_content.json", help="输出 JSON 文件名（默认：section_content.json）")
+
+    args = parser.parse_args()
+    process_root(args.root, args.outline_name, args.original_name, args.output_name)
 
 if __name__ == "__main__":
     main()
