@@ -91,10 +91,9 @@ def parse_markdown_headings(md_text: str) -> Tuple[List[str], List[DocNode]]:
 
 def build_original_path_map(md_text: str) -> Dict[Tuple[str, ...], str]:
     """
-    为每个章节构造 content，满足：
-      - 必以“标题 + 换行”开头；
-      - 若正文非空：标题后接正文（父节仅包含到子节前的正文），末尾补换行；
-      - 若正文为空：仅“标题 + 换行”（仍保证末尾换行）。
+    为每个章节构造 content（不包含标题行），满足：
+      - 若正文非空：仅正文，末尾补一个换行；
+      - 若正文为空：content 为空字符串 ""。
     """
     lines, nodes = parse_markdown_headings(md_text)
     path_map: Dict[Tuple[str, ...], str] = {}
@@ -109,10 +108,11 @@ def build_original_path_map(md_text: str) -> Dict[Tuple[str, ...], str]:
         return "\n".join(lines[a:b]).strip("\n")
 
     for node in nodes:
-        heading_line = lines[node.start_idx].rstrip("\n")
+        # 标题所在行不再参与 content
         start = node.start_idx + 1
         end = node.end_idx if node.end_idx is not None else total_lines
 
+        # 正文 = 本节到各子节之间的“父级正文”片段拼接（用空行分隔）
         segments: List[Tuple[int, int]] = []
         cursor = start
         for child in node.children:
@@ -125,10 +125,8 @@ def build_original_path_map(md_text: str) -> Dict[Tuple[str, ...], str]:
         pieces = [slice_lines(a, b) for (a, b) in segments if b > a]
         body = "\n\n".join(p for p in pieces if p.strip() != "").rstrip()
 
-        if body:
-            content = f"{heading_line}\n{body}\n"
-        else:
-            content = f"{heading_line}\n"
+        # 只保留正文：非空则补一个结尾换行，空则返回 ""
+        content = f"{body}\n" if body else ""
 
         norm_path = tuple(normalize_title(t) for t in node.path_titles())
         path_map[norm_path] = content

@@ -5,7 +5,7 @@ import json
 import math
 import re
 from pathlib import Path
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 CASE_DIR_RE = re.compile(r"^case\d+$")
 
@@ -33,22 +33,54 @@ def _gather_case_dirs(root_dir: Path) -> List[Tuple[str, Path]]:
         print(f"[INFO] 共找到 {len(case_dirs)} 个用例目录")
     return case_dirs
 
+def _find_history_from_markdown(md_text: str, snippet: str) -> Optional[str]:
+    """
+    在 md_text 中查找 snippet 的首次出现。
+    命中则返回其前面的内容（作为 history/context）。
+    若未命中，返回 None。
+    - 先做精确匹配；若失败，再做“空白宽松”的正则匹配（将 snippet 中连续空白折叠为 \s+）。
+    """
+    if not snippet:
+        return None
+
+    # 优先精确匹配
+    idx = md_text.find(snippet)
+    if idx != -1:
+        return md_text[:idx]
+
+    # 宽松匹配：忽略空白差异
+    # 将 snippet 中的连续空白折叠为 \s+，其余字符转义
+    snippet_norm = re.sub(r"\s+", r"\\s+", re.escape(snippet.strip()))
+    try:
+        m = re.search(snippet_norm, md_text, flags=re.DOTALL)
+        if m:
+            return md_text[:m.start()]
+    except re.error as e:
+        print(f"[WARN] 正则匹配失败（将退回放弃该样本）: {e}")
+
+    return None
+
 def process_one_file(file_path: Path, file_label: str, ratios: List[float]) -> List[Dict]:
     """
-    读取单个 split_xxx.json，按给定比例生成 (context, hint, output) 对。
-    - 同一文件内 history 逐条累加
-    - 对每条 elem，会按多个 ratio 生成多条样本（不改变 history）
-    - 读取同级目录下的 user_intent.md 与 outline.md，填入每条样本的字段
-    - 新增字段 "file"=file_label（如 "case0"）
-    - 过滤规则：len(elem) < 8 或 elem 以 "\\n#" 开头时跳过（但仍累加到 history）
+    读取单个 split_snippet.json，按给定比例生成 (context, hint, output) 对。
+    - 不再使用逐条累加的 history；改为：对每个元素到 full_content.md 中首次匹配，
+      取匹配到的起始位置之前文本作为 history（context）。
+    - 对每条 elem，会按多个 ratio 生成多条样本。
+    - 读取同级目录下的 user_intent.md 与 outline.md，填入每条样本的字段。
+    - 新增字段 "file"=file_label（如 "case0"）。
+    - 过滤规则：len(elem) < 8 或 elem 以 "\\n#" 开头时跳过（但仍会去尝试匹配以便日志定位）。
     """
     dir_path = file_path.parent
     user_intent = _read_text_file(dir_path / "user_intent.md")
     outline = _read_text_file(dir_path / "outline.md")
+    md_text = _read_text_file(dir_path / "full_content.md")
+
     if not user_intent:
         print(f"[WARN] 未找到或读取失败: {dir_path/'user_intent.md'}")
     if not outline:
         print(f"[WARN] 未找到或读取失败: {dir_path/'outline.md'}")
+    if not md_text:
+        print(f"[WARN] 未找到或读取失败: {dir_path/'full_content.md'}（该目录将无法生成样本）")
 
     # 读取 JSON 数据
     try:
@@ -63,7 +95,6 @@ def process_one_file(file_path: Path, file_label: str, ratios: List[float]) -> L
         return []
 
     results: List[Dict] = []
-    history = ""
 
     for elem in data:
         if not isinstance(elem, str):
@@ -71,31 +102,38 @@ def process_one_file(file_path: Path, file_label: str, ratios: List[float]) -> L
 
         is_heading_fragment = elem.startswith("\n#")
         if len(elem) < 8 or is_heading_fragment:
-            # 保持你当前策略：短元素/标题片段不产样本，但纳入 history
-            history += elem
+            # 与之前逻辑一致：这类元素不产样本。
+            # 这里 history 不再累加，由 markdown 定位，仍尝试匹配仅用于日志定位/调试。
+            if md_text:
+                hist = _find_history_from_markdown(md_text, elem)
+                if hist is None:
+                    print(f"[INFO] 跳过（未找到或过短/标题片段）且未匹配到：{file_path} -> 片段开头: {repr(elem[:20])}")
             continue
 
-        # 对每个切割比例生成一条样本
-        items_for_elem = []
+        if not md_text:
+            # 没有 full_content.md，无法生成该元素的样本
+            print(f"[WARN] 缺少 full_content.md，跳过样本：{file_path} -> {repr(elem[:20])}")
+            continue
+
+        history = _find_history_from_markdown(md_text, elem)
+        if history is None:
+            print(f"[WARN] 在 markdown 中未匹配到该片段（将跳过）：{file_path} -> 片段开头: {repr(elem[:50])}")
+            continue
+
+        # 对每个切割比例生成样本
         for r in ratios:
             prefix_len = math.ceil(len(elem) * r)
             prefix = elem[:prefix_len]
-            input_text = history  # context 不包含本 elem
 
-            items_for_elem.append({
-                "context": input_text,
+            results.append({
+                "context": history,      # 由 markdown 首次匹配位置之前的内容构成
                 "hint": prefix,
                 "output": elem,
                 "ratio": r,
                 "user_intent": user_intent,
                 "outline": outline,
-                "file": file_label,  # 新增字段
+                "file": file_label,
             })
-
-        results.extend(items_for_elem)
-
-        # 在本 elem 处理完所有 ratio 之后再更新历史
-        history += elem
 
     return results
 
@@ -106,7 +144,7 @@ def _build_for_filename(
     filename: str
 ):
     """
-    针对指定 filename（如 split_sentence.json 或 split_clause.json）
+    针对指定 filename（此处应为 split_snippet.json）
     遍历所有 case* 目录，生成样本并保存。
     """
     all_results: List[Dict] = []
@@ -134,25 +172,15 @@ def main():
     root_dir = Path("./")  # 👉 改成你的根目录路径
 
     # ===== 比例配置 =====
-    # ratios = [0.1, 0.3, 0.5]
     ratios = [0.0, 0.3]
 
-    # —— 1) 处理按句号/分号切片的文件 —— #
-    sentence_output = "all_cases_io_sentence.json"
+    # —— 处理按 snippet 切片的文件 —— #
+    snippet_output = "all_cases_io_snippet.json"
     _build_for_filename(
         root_dir=root_dir,
-        output_file=sentence_output,
+        output_file=snippet_output,
         ratios=ratios,
-        filename="split_sentence.json"
-    )
-
-    # —— 2) 处理按逗号/从句切片的文件 —— #
-    clause_output = "all_cases_io_clause.json"
-    _build_for_filename(
-        root_dir=root_dir,
-        output_file=clause_output,
-        ratios=ratios,
-        filename="split_clause.json"
+        filename="split_snippet.json"
     )
 
 if __name__ == "__main__":

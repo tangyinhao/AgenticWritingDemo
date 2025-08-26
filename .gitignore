@@ -1,1 +1,6 @@
 deprecated/
+plots/
+accept_rate_plot.py
+*.csv
+compare_str.py
+*/split_snippet_test.json

@@ -12,7 +12,7 @@ from openai import OpenAI, APIError, RateLimitError
 
 # ========= 可按需修改的默认文件名 =========
 INPUT_JSON_NAME = "section_content.json"
-OUTPUT_JSON_NAME = "split_snippet.json"
+OUTPUT_JSON_NAME = "split_snippet_test.json"
 
 # ========= 代理（如不需要可注释掉）=========
 # os.environ.setdefault("http_proxy", "http://172.17.0.1:7890")
@@ -75,13 +75,29 @@ def split_with_gpt(content: str, model: str = "gpt-4o", temperature: float = 0.0
     - 最终仍失败则回退为 [content]
     """
     prompt = f"""
-你是一个文档分片助手。请根据语义将下面的内容分割为若干语义完整的片段，片段的最小分隔不应该低于两个个完整的句子。
-你分割时候的内容拼接起来之后应该是完整的contetn内容
+你是一个文档分片助手。请根据语义将### Content中的内容分割为若干语义完整的段落，每个分割后的片段不应该低于两个完整的句子(需要以句号结束才叫做句子，逗号不算)。
+如果分隔的某个片段只有一个句子则可以考虑将其合并到其他的片段。
+你的分隔应该在语义相近的情况下分隔的片段尽量的长(若都是描述的同一个主题则无需分隔)。
+比如像下面的内容应该都是一个完整片段而不应该分隔：
+Example
+-------
+1. PBST、PBS、Tween-20。  
+2. SDS-PAGE 电泳缓冲液。  
+3. Western blot 转膜缓冲液。  
+4. 10×TBS 缓冲液。  
+5. 1×TBST 缓冲液。  
+6. 封闭缓冲液：5% 的脱脂奶粉溶液。  
+7. 一抗/二抗稀释缓冲液。  
+-------
+8. 转膜用的夹子、两块海绵垫、一支滴管、滤纸、一张 PVDF 膜、转膜槽、转移电泳仪、摇床、计时器、磁力搅拌器、转子、Western blot 盒、SDS-PAGE 胶、脱脂奶粉。  
+你分割后的各片段拼接起来之后应该完整还原原 Content,包括标点符号和标题的符号以及所有换行符。不要漏掉任何一个字符。
+
 要求：
 1) 输出必须是 JSON 数组，数组元素均为分隔出来的字符串。
-2) 数组元素必须和原文中对应内容完全一致。
+2) 数组元素必须和原文中对应内容完全一致（不要改写、不要增删字符）。
+3) 不要包含任何解释性文字。
 
-### Content：
+### Content:
 {content}
 """.strip()
 
@@ -126,15 +142,15 @@ def split_with_gpt(content: str, model: str = "gpt-4o", temperature: float = 0.0
     return [content]
 
 
-def process_number_dir(number_dir: Path, model: str):
+def process_case_dir(case_dir: Path, model: str):
     """
-    处理一个编号目录：
+    处理一个 case* 目录：
     - 读取 section_content.json
     - 提取所有 content，逐段调用分片
     - 汇总写入 split_snippet.json
     """
-    in_path = number_dir / INPUT_JSON_NAME
-    out_path = number_dir / OUTPUT_JSON_NAME
+    in_path = case_dir / INPUT_JSON_NAME
+    out_path = case_dir / OUTPUT_JSON_NAME
 
     if not in_path.exists():
         print(f"[SKIP] 找不到输入文件：{in_path}")
@@ -148,7 +164,6 @@ def process_number_dir(number_dir: Path, model: str):
         return
 
     all_contents = extract_contents(data)
-    #print(all_contents[0:5])
     if not all_contents:
         print(f"[WARN] 未提取到任何 content，跳过：{in_path}")
         return
@@ -167,48 +182,54 @@ def process_number_dir(number_dir: Path, model: str):
         print(f"[ERROR] 写文件失败：{out_path} ({e})")
 
 
-def is_integer_dir(p: Path) -> bool:
-    """判断目录名是否为非负整数（0/1/2/...）"""
-    return p.is_dir() and p.name.isdigit()
+def is_case_dir(p: Path, prefix: str = "case") -> bool:
+    """
+    判断目录名是否为形如 '<prefix><非负整数>' 的目录，例如 'case0' / 'case1' / ...
+    """
+    if not p.is_dir():
+        return False
+    return re.fullmatch(fr'{re.escape(prefix)}\d+', p.name) is not None
 
 
-def process_root(root: Path, model: str):
+def process_root(root: Path, model: str, case_prefix: str = "case"):
     """
     遍历根目录：
-    - 第一层：类型子目录（示例：公式密集型文档 / 引用密集型文档 / 实体密集型文档 / 文字叙述型文档）
-      —— 实际上不做名称强约束，凡是目录都进入
-    - 第二层：编号子目录（0/1/2/...）
+    - 仅遍历第一层中所有形如 '<prefix><数字>' 的子目录（默认 'case0/ case1/ ...'）
+    - 每个子目录中直接寻找并处理 section_content.json
     """
     if not root.exists() or not root.is_dir():
         raise FileNotFoundError(f"根目录不存在或不是目录：{root}")
 
-    type_dirs = [p for p in root.iterdir() if p.is_dir()]
-    if not type_dirs:
-        print(f"[WARN] 根目录下未发现类型子目录：{root}")
+    case_dirs = [p for p in root.iterdir() if is_case_dir(p, case_prefix)]
+    if not case_dirs:
+        print(f"[WARN] 根目录下未发现 '{case_prefix}<数字>' 形式的子目录：{root}")
         return
 
-    for type_dir in type_dirs:
-        print(f"\n[TYPE] {type_dir.name}")
-        number_dirs = [p for p in type_dir.iterdir() if is_integer_dir(p)]
-        if not number_dirs:
-            print(f"  [WARN] 未找到编号子目录（0/1/2/...）：{type_dir}")
-            continue
-        number_dirs.sort(key=lambda p: int(p.name))
-        for nd in number_dirs:
-            print(f"[DIR] {type_dir.name}/{nd.name}")
-            process_root.current_dir = f"{type_dir.name}/{nd.name}"
-            process_number_dir(nd, model=model)
+    # 按数字序排序（case10 > case2）
+    def case_index(path: Path) -> int:
+        m = re.search(r'(\d+)$', path.name)
+        return int(m.group(1)) if m else 0
+
+    case_dirs.sort(key=case_index)
+
+    for d in case_dirs:
+        print(f"[DIR] {d.name}")
+        process_root.current_dir = d.name
+        process_case_dir(d, model=model)
 
 
 def main():
-    parser = argparse.ArgumentParser(description="批量遍历根目录下的类型与编号子目录，调用 OpenAI 进行内容分片。")
+    parser = argparse.ArgumentParser(
+        description="遍历根目录下的 case* 子目录，调用 OpenAI 进行内容分片。"
+    )
     parser.add_argument("--root", type=str, default="./", help="数据集根目录，例如：/path/to/dataset_root")
     parser.add_argument("--model", type=str, default="gpt-4o", help="OpenAI 模型名（默认：gpt-4o）")
+    parser.add_argument("--case-prefix", type=str, default="case", help="子目录前缀（默认：case）")
     args = parser.parse_args()
 
     root = Path(args.root).expanduser().resolve()
     print(f"[START] 根目录：{root}")
-    process_root(root, model=args.model)
+    process_root(root, model=args.model, case_prefix=args.case_prefix)
     print("[DONE] 全部处理完成。")
 
 
