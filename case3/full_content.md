@@ -6,9 +6,9 @@
 
 **单智能体 (Pillar I)**: 是这个框架下最基础的单元。
 
-- 挑战一在于如何为一个拥有庞大语言空间的模型定义精确的奖励。[Search-R1（Jin et al., 2025）](https://arxiv.org/abs/2503.09516)提出搜索引擎与 LLM 推理过程交错融合的 RL 训练范式，通过引入检索 token masking 策略来提升优化稳定性。在设计奖励规则时，直接使用任务结果导向的 EM 作为奖励函数。[ReSearch（Chen et al., 2025）](https://arxiv.org/abs/2503.19470)和 [DeepResearcher（Cheng et al., 2025）](https://arxiv.org/abs/2504.03160)采用 word-level F1 估算答案的奖励，同时引入格式遵守惩罚项，即检查模型输出是否包含所有必需的特殊令牌 ``<think>``、``<search>`` 等。除了检查格式正确性，[ToolRL（Qian et al., 2025）](https://arxiv.org/abs/2504.13958)还评估了轨迹中工具调用的准确性。具体地，ToolRL 基于 Jaccard 相似度估计工具、参数名称选择的合理性，基于 EM 评估参数值的正确性。为了鼓励工具的有效性（代码的鲁棒性），[ARTIST（Singh et al., 2025）](https://arxiv.org/abs/2505.01441)引入了工具执行奖励，即工具调用的成功比例。此外，ARTIST 还定义了状态奖励，旨在激励模型在多轮交互过程中持续维护并更新正确状态（如 Tau-Bench 订单状态、支付方式）。
+- 挑战一在于如何为一个拥有庞大语言空间的模型定义精确的奖励。Search-R1提出搜索引擎与 LLM 推理过程交错融合的 RL 训练范式，通过引入检索 token masking 策略来提升优化稳定性。在设计奖励规则时，直接使用任务结果导向的 EM 作为奖励函数。ReSearch和DeepResearcher采用 word-level F1 估算答案的奖励，同时引入格式遵守惩罚项，即检查模型输出是否包含所有必需的特殊令牌 ``<think>``、``<search>`` 等。除了检查格式正确性，ToolRL还评估了轨迹中工具调用的准确性。具体地，ToolRL 基于 Jaccard 相似度估计工具、参数名称选择的合理性，基于 EM 评估参数值的正确性。为了鼓励工具的有效性（代码的鲁棒性），ARTIST引入了工具执行奖励，即工具调用的成功比例。此外，ARTIST 还定义了状态奖励，旨在激励模型在多轮交互过程中持续维护并更新正确状态（如 Tau-Bench 订单状态、支付方式）。
 
-- 挑战二来自于通信和信用分配的复杂性，但其根本目标依然是响应反馈、优化策略。由于 MoA 的最终目标是高质量地完成用户请求，因此可以将最终任务的奖励信号作为统一的优化依据，广播给流程中的各个模块，从而实现模块间的协同优化（[Li et al., 2025](https://arxiv.org/abs/2506.17188); [Wei et al., 2025](https://arxiv.org/abs/2505.16421)）。为了准确地进行信用分配，[SPA（Wang et al., 2025）](https://arxiv.org/abs/2505.20732)训练了一个进度估计器（progress estimator），它通过累积每一步的贡献，使整个轨迹上的累计奖励与任务的最终奖励相匹配；具体是在 LLM 的最后加了一个轻量级的 MLP，使其能够为每一个状态-动作对（state–action pair）估计一个标量的“贡献分数”。由于信用分配的最终目标是为每个动作/组件估计其优势，而这对大语言模型来说可能比估计预期未来奖励（value model）更简单，因此 [SWEET-RL（Zhou et al., 2025）](https://arxiv.org/abs/2503.15478)提出直接学习每一步动作的优势函数。受 reward model 训练策略启发，SWEET-RL 提出通过轨迹偏好对来训练逐步的优势函数。
+- 挑战二来自于通信和信用分配的复杂性，但其根本目标依然是响应反馈、优化策略。由于 MoA 的最终目标是高质量地完成用户请求，因此可以将最终任务的奖励信号作为统一的优化依据，广播给流程中的各个模块，从而实现模块间的协同优化。为了准确地进行信用分配，SPA训练了一个进度估计器（progress estimator），它通过累积每一步的贡献，使整个轨迹上的累计奖励与任务的最终奖励相匹配；具体是在 LLM 的最后加了一个轻量级的 MLP，使其能够为每一个状态-动作对（state–action pair）估计一个标量的“贡献分数”。由于信用分配的最终目标是为每个动作/组件估计其优势，而这对大语言模型来说可能比估计预期未来奖励（value model）更简单，因此SWEET-RL提出直接学习每一步动作的优势函数。受 reward model 训练策略启发，SWEET-RL 提出通过轨迹偏好对来训练逐步的优势函数。
 
 **多智能体 (Pillar II)**: 是这个框架的**尺度扩展 (Scaling-up)**。核心问题从“如何优化一个策略”变成了“如何在一组相互影响的策略中找到稳定解”。这个现有工作还没有。
 
@@ -60,13 +60,13 @@
 
 ### 问题合成
 
-复杂任务合成是目前单智能体优化的主流方案。现有的信息查询数据集合成方法通常依赖于在网上自由检索信息，并利用大型语言模型（LLM）从收集到的内容中生成问题。这些方法一般会先将收集的信息组织成结构化格式，然后再使用这些结构化数据作为提示，驱动 LLM 生成自然语言（NL）问题。其核心目标是将信息结构映射为自然语言问题中的推理结构。典型方法如 [WebDancer（Wu et al., 2025）](https://arxiv.org/abs/2505.22648) 和 [TaskCraft（Shi et al., 2025）](https://arxiv.org/abs/2506.10055) 会生成线性的信息链，而其他方法则构建通过 [网页链接（Wu et al., 2025）](https://arxiv.org/abs/2501.07572) 或 [实体共指网络（Li et al., 2025）](https://arxiv.org/abs/2507.02592) 连接的信息图。然而，这些以信息为导向的方法存在两个关键限制。首先，使用 LLM 进行合成时可能无法完全理解信息结构，导致生成的自然语言问题中推理结构不一致，甚至出现错误答案。其次，信息检索过程杂乱无序，往往带来过多的数据处理开销，并收集到冗余的同质化信息结构，限制了信息结构的多样性，降低了知识覆盖范围。为克服上述限制，[WebShaper（Tao et al., 2025）](https://arxiv.org/abs/2507.15061) 提出了一种基于形式化驱动的数据集合成范式。该方法首先对信息检索任务进行形式化建模，然后通过该形式化过程系统性地引导数据的生成。在生成过程中，信息的收集由形式化任务需求显式控制。
+复杂任务合成是目前单智能体优化的主流方案。现有的信息查询数据集合成方法通常依赖于在网上自由检索信息，并利用大型语言模型（LLM）从收集到的内容中生成问题。这些方法一般会先将收集的信息组织成结构化格式，然后再使用这些结构化数据作为提示，驱动 LLM 生成自然语言（NL）问题。其核心目标是将信息结构映射为自然语言问题中的推理结构。典型方法如WebDancer和TaskCraft会生成线性的信息链，而其他方法则构建通过网页链接或实体共指网络连接的信息图。然而，这些以信息为导向的方法存在两个关键限制。首先，使用 LLM 进行合成时可能无法完全理解信息结构，导致生成的自然语言问题中推理结构不一致，甚至出现错误答案。其次，信息检索过程杂乱无序，往往带来过多的数据处理开销，并收集到冗余的同质化信息结构，限制了信息结构的多样性，降低了知识覆盖范围。为克服上述限制，WebShaper提出了一种基于形式化驱动的数据集合成范式。该方法首先对信息检索任务进行形式化建模，然后通过该形式化过程系统性地引导数据的生成。在生成过程中，信息的收集由形式化任务需求显式控制。
 
 问题合成主要分为两种类型：
 
-- 前向推理: 基于现有的 [知识图谱（Li et al., 2025）](https://arxiv.org/abs/2507.02592)、[工具库（Shi et al., 2025）](https://arxiv.org/abs/2506.10055)、[网站（Wu et al., 2025）](https://arxiv.org/abs/2501.07572) 等，通过路由节点，采样知识图谱中的一个子图，基于 root 和叶节点构造一个问题。随着路由因为叶子节点在变化，所以答案一直在变化。深度通过 root 和根节点的 depth 决定问题的难度。
+- 前向推理: 基于现有的知识图谱、工具库、网站等，通过路由节点，采样知识图谱中的一个子图，基于 root 和叶节点构造一个问题。随着路由因为叶子节点在变化，所以答案一直在变化。深度通过 root 和根节点的 depth 决定问题的难度。
 
-- 反向推理: 答案是永久不变的，问题在持续迭代。每次迭代会选取当前问题的某一个 [（Wu et al., 2025）](https://arxiv.org/abs/2505.22648) 或者所有实体 [（Tao et al., 2025）](https://arxiv.org/abs/2507.15061) 去做拓展子问题，通过拓展次数保证深度。
+- 反向推理: 答案是永久不变的，问题在持续迭代。每次迭代会选取当前问题的某一个或者所有实体去做拓展子问题，通过拓展次数保证深度。
 
 ### 自我迭代类型
 
@@ -80,21 +80,21 @@
 
     - **典型模式**:
 
-        - **出题-解题 (Generator-Solver)**: 一个智能体（Generator）学习生成当前策略难以解决的复杂问题或任务，另一个智能体（Solver）则被迫学习如何解决它们。[Self-Challenging（Zhou et al., 2025）](https://arxiv.org/abs/2506.01716) 提出了一个用于合成大规模多轮工具调用任务的框架。该框架由一个同时扮演 Challenger 和 Executor 角色的 Agent、一个运行 Python 函数的 verifier 构成。Challenger 在未知环境中使用工具探索可能实现的目标，生成具有挑战性的任务。为了保证生成的任务是可行的、可验证的和具有挑战性的，作者提出 Code-as-Task（CaT）表示法，定义任务由如下四个组成部分：自然语言指令（instruction）、可执行验证函数（verification function）、一个正样本 solution 示例和三个负样本 solution 示例。除指令外，其他部分均以代码形式表达，通过代码编译器运行示例自动筛除不合理任务（即要求运行正样本示例后，任务状态可以通过 verifier 验证，而负样本示例则不能通过），提高自动化构造的任务质量。Executor 执行由 Challenger 构造的任务，并基于 verifier 的奖励进行策略更新。[AZR（Zhao et al., 2025）](https://arxiv.org/abs/2505.03335) 框架定义了三类任务类型：演绎推理（Deduction）、溯因推理（Abduction）和归纳推理（Induction），以提升模型在这三种推理范式下的能力。其 self-play 机制在 deduction 任务中的实现逻辑如下：给定任务类型 $a=deduction$ 和 $K$ 个参考样例，proposer 构造一个程序-输入对 $(p,i)$，并在 Python 环境中执行 $p(i)$，获得期望输出 $O_{gold}$。随后，solver 接收 $(p,i)$ 并生成对应的非形式化演绎推理过程及预测结果 $O_{solver}$。系统通过运行环境对比 $O_{solver}$ 与 $O_{gold}$ 的一致性，作为 solver 的奖励 $r_{solve}$，同时将 $1-r_{solve}$ 作为对 proposer 的奖励，从而实现 proposer 与 solver 的对抗协同训练。
+        - **出题-解题 (Generator-Solver)**: 一个智能体（Generator）学习生成当前策略难以解决的复杂问题或任务，另一个智能体（Solver）则被迫学习如何解决它们。Self-Challenging提出了一个用于合成大规模多轮工具调用任务的框架。该框架由一个同时扮演 Challenger 和 Executor 角色的 Agent、一个运行 Python 函数的 verifier 构成。Challenger 在未知环境中使用工具探索可能实现的目标，生成具有挑战性的任务。为了保证生成的任务是可行的、可验证的和具有挑战性的，作者提出 Code-as-Task（CaT）表示法，定义任务由如下四个组成部分：自然语言指令（instruction）、可执行验证函数（verification function）、一个正样本 solution 示例和三个负样本 solution 示例。除指令外，其他部分均以代码形式表达，通过代码编译器运行示例自动筛除不合理任务（即要求运行正样本示例后，任务状态可以通过 verifier 验证，而负样本示例则不能通过），提高自动化构造的任务质量。Executor 执行由 Challenger 构造的任务，并基于 verifier 的奖励进行策略更新。AZR框架定义了三类任务类型：演绎推理（Deduction）、溯因推理（Abduction）和归纳推理（Induction），以提升模型在这三种推理范式下的能力。其 self-play 机制在 deduction 任务中的实现逻辑如下：给定任务类型 $a=deduction$ 和 $K$ 个参考样例，proposer 构造一个程序-输入对 $(p,i)$，并在 Python 环境中执行 $p(i)$，获得期望输出 $O_{gold}$。随后，solver 接收 $(p,i)$ 并生成对应的非形式化演绎推理过程及预测结果 $O_{solver}$。系统通过运行环境对比 $O_{solver}$ 与 $O_{gold}$ 的一致性，作为 solver 的奖励 $r_{solve}$，同时将 $1-r_{solve}$ 作为对 proposer 的奖励，从而实现 proposer 与 solver 的对抗协同训练。
 
         - **攻击-防御 (Red Team-Blue Team)**: 一个智能体（Red Team）学习发现当前系统的漏洞或生成对抗性输入，另一个智能体（Blue Team）则学习如何防御。
 
 - **迭代式自我修正与反思 (Iterative Self-Correction and Reflection)**
 
-    - **描述**: 单个智能体通过生成对自身输出的批判性反思（Critique），并在下一轮迭代中利用该反思来改进其解决方案（[Shinn et al., 2023](https://arxiv.org/abs/2303.11366)）。这是一种内化的、基于自我对话的学习循环。
+    - **描述**: 单个智能体通过生成对自身输出的批判性反思（Critique），并在下一轮迭代中利用该反思来改进其解决方案。这是一种内化的、基于自我对话的学习循环。
 
     - **机制**: Agent 首先生成一个初始答案，然后启动一个“反思”或“批判”模式来评估该答案的缺陷，最后将“原始问题 + 初始答案 + 批判性反思”作为新的输入，生成一个更优的答案。
 
 - **内生信号进行监督（Intrinsic Signals and Self-Play in Language Model Optimization）**
 
-    - **描述**: 模型在处理难题时表现出较低的置信度（[Kang et al., 2024](https://arxiv.org/abs/2403.05612), [2025](https://arxiv.org/abs/2502.18581)），优化置信度应能提升推理能力。
+    - **描述**: 模型在处理难题时表现出较低的置信度，优化置信度应能提升推理能力。
 
-    - **机制**: 利用模型自身的内部置信度度量——称为自我确定性——作为唯一的奖励，而无需外部奖励或标记数据。[INTUITOR（Zhao et al., 2025）](https://arxiv.org/abs/2505.19590) 使用模型输出分布与均匀分布之间的平均 KL 散度作为自我确定性度量。该指标已被证明有助于区分高质量响应与有缺陷的响应（[Kang et al., 2025](https://arxiv.org/abs/2502.18581), [Ma et al., 2025](https://arxiv.org/abs/2504.09858)）。基于这一见解，INTUITOR 通过自我生成的信号指导学习，无需外部监督或手工制作的奖励。INTUITOR 在 in-domain 任务上达到了与监督强化学习相匹配的性能，同时在 OOD 泛化方面表现更优。作者发现内在奖励诱导了涌现的结构化推理和增强的指令跟随能力。
+    - **机制**: 利用模型自身的内部置信度度量——称为自我确定性——作为唯一的奖励，而无需外部奖励或标记数据。INTUITOR使用模型输出分布与均匀分布之间的平均 KL 散度作为自我确定性度量。该指标已被证明有助于区分高质量响应与有缺陷的响应。基于这一见解，INTUITOR 通过自我生成的信号指导学习，无需外部监督或手工制作的奖励。INTUITOR 在 in-domain 任务上达到了与监督强化学习相匹配的性能，同时在 OOD 泛化方面表现更优。作者发现内在奖励诱导了涌现的结构化推理和增强的指令跟随能力。
 
 - **自动化课程学习 (Automated Curriculum Learning)**
 
@@ -123,47 +123,3 @@ Self-Play 之所以能持续产生价值，主要源于以下**三种“新信�
     **例子**: 在 AlphaGo 的自我对弈中，棋盘的规则是固定的，没有外部信息注入。但一个版本的 AlphaGo 走出的棋（例如“第 37 手”），可能会让另一个版本的 AlphaGo 发现一个之前从未意识到的、深刻的战略漏洞或机会。这个“新信息”是**关于策略空间本身的全新发现**。通过不断地自我挑战，智能体被迫探索其巨大知识库和推理能力的未知组合，从而实现对问题更深层次的理解，这是一种内生的认知突破。
 
 **总结一下**，它之所以强大，正是因为它建立了一个机制，能够通过**外部环境交互、工具执行反馈以及内在的对抗性探索**，持续不断地为学习系统注入“新信息”，从而驱动智能体进行有意义的、超越已有数据边界的进化。
-
-# Reference
-
-- Chen, M., Li, T., Sun, H., Zhou, Y., Zhu, C., Wang, H., Pan, J. Z., Zhang, W., Chen, H., Yang, F., Zhou, Z., & Chen, W. (2025). *ReSearch: Learning to reason with search for LLMs via reinforcement learning*. arXiv.
-
-- Cheng, (DeepResearcher team) — Zheng, Y., Fu, D., Hu, X., Cai, X., Ye, L., Lu, P., & Liu, P. (2025). *DeepResearcher: Scaling deep research via reinforcement learning in real-world environments*. arXiv.
-
-- Jin, B., Zeng, H., Yue, Z., Yoon, J., Arik, S., Wang, D., Zamani, H., & Han, J. (2025). *Search-R1: Training LLMs to reason and leverage search engines with reinforcement learning*. arXiv.
-
-- Kang, K., Wallace, E., Tomlin, C., Kumar, A., & Levine, S. (2024). *Unfamiliar finetuning examples control how language models hallucinate*. arXiv.
-
-- Kang, Z., Zhao, X., & Song, D. (2025). *Scalable best-of-N selection for large language models via self-certainty*. arXiv.
-
-- Li, Z., Chen, X., Li, Q., Li, H., Guo, D., Hu, L., Dong, Y., Zhang, M., Xu, H., Liu, X., Li, R., Qi, Z., Gao, P., & Wen, J.-R. (2025). *Towards AI search paradigm: Rethinking search–agent–reinforcement learning loop*. arXiv.
-
-- Ma, W., He, J., Snell, C., Griggs, T., Min, S., & Zaharia, M. (2025). *Reasoning models can be effective without thinking*. arXiv.
-
-- Qian, H., Zhao, Y., Fang, M., & Li, H. (2025). *Practical ToolRL: Tool-use reinforcement learning for agents in real world*. arXiv.
-
-- Shinn, N., Cassano, F., Berman, E., Gopinath, A., Narasimhan, K., & Yao, S. (2023). *Reflexion: Language agents with verbal reinforcement learning*. arXiv.
-
-- Shi, D., Cao, J., Chen, Q., Sun, W., Li, W., Lu, H., Dong, F., Qin, T., Zhu, K., Liu, M., Yang, J., Zhang, G., Liu, J., Zhang, C., Wang, J., Jiang, Y. E., & Zhou, W. (2025). *TaskCraft: Automated generation of agentic tasks*. arXiv.
-
-- Singh, J., Magazine, R., Pandya, Y., & Nambi, A. (2025). *Agentic reasoning and tool integration for LLMs via reinforcement learning*. arXiv.
-
-- Tao, Z., Zhang, D., Li, K., Zhang, Z., Yin, W., Ou, L., Zhang, L., Li, B., Li, Z., Shen, W., Zhang, J., Zhang, D., Jiang, Y., Yan, M., Xie, P., Huang, F., & Zhou, J. (2025). *WebShaper: Formalism-driven web-agent dataset synthesis*. arXiv.
-
-- Wang, Y., Peng, Y., Yuan, H., Li, C., Xiong, J., & He, J. (2025). *SPA-RL: Agentic RL with self-step progress assessment*. arXiv.
-
-- Wei, X., Feng, H., Li, D., Liu, K., & Cheng, N. (2025). *WebAgent-R1: Web agents as search engines*. arXiv.
-
-- Wu, J., Li, B., Fang, R., Yin, W., Zhang, L., Tao, Z., Zhang, D., Xi, Z., Fu, G., Jiang, Y., Xie, P., Huang, F., & Zhou, J. (2025). *WebDancer: Towards autonomous information seeking agency*. arXiv.
-
-- Wu, J., Yin, W., Jiang, Y., Wang, Z., Xi, Z., Fang, R., Zhang, L., He, Y., Zhou, D., Xie, P., & Huang, F. (2025). *WebWalker: Benchmarking LLMs in web traversal*. arXiv.
-
-- Zhao, J., Sun, W\.-L., Fang, M., Li, Y., & Guo, J. (2025). *AZR: Autonomous zero-shot reasoners via verifiable self-play*. arXiv.
-
-- Zhao, X., Kang, Z., Feng, A., Levine, S., & Song, D. (2025). *Learning to reason without external rewards*. arXiv.
-
-- Zhou, X., Zhang, H., Zheng, D., Gong, L., Luo, S., & Lyu, L. (2025). *SWEET-RL: Step-wise preference-based reinforcement learning for language agents*. arXiv.
-
-- Zhou, Z., Li, L., Li, Z., Li, M., Wang, Y., Li, Y., & Tang, J. (2025). *Self-Challenging: Scaling large language model agents via code-as-task*. arXiv.
-
-- Li, K., Zhang, Z., Yin, H., Zhang, L., Ou, L., Wu, J., Yin, W., Li, B., Tao, Z., Wang, X., Shen, W., Zhang, J., Zhang, D., Jiang, Y., Yan, M., Xie, P., Huang, F., & Zhou, J. (2025). *WebSailor: Navigating super-human reasoning for web agent*. arXiv.
