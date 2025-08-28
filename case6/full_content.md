@@ -1,13 +1,6 @@
-
 # 关闭安全启动，CA 证书 “卡脖子”就缓解了吗？——再论安全启动卡脖子问题​
 
-上个礼拜，参加一个生态伙伴的大会。期间，邻桌的安全领域大佬问我“现在国内BIOS Resiliency做得怎么样？”我只能报以无奈的苦笑，大佬则似乎秒懂了我的意思，不再追问，一切尽在不言中。
-
-行家一伸手，就知有没有。可能很多朋友不知道Resiliency（韧性）具体是什么，但业内都知道，是指的NIST SP 800-193[1]，Platform Firmware Resiliency Guidelines.
-
-NIST是National Institute of Standards and Technology（美国国家标准与技术研究院）的缩写。SP 800-193它有很多姊妹标准，如NIST SP 800-147, BIOS Protection Guidelines，NIST SP 800-147B, BIOS Protection Guidelines for Servers等等，这些都可以公开下载。 **NIST标准可以通俗得理解为是美版政府采购基线标准**。
-
-那么固件（BIOS和BMC）的韧性（Resiliency）是指什么？NIST认为至少包括三个方面：
+固件（BIOS和BMC）的韧性（Resiliency）是指什么？NIST认为至少包括三个方面：
 
 - **保护**：确保平台固件代码和关键数据保持完整性状态并防止损坏的机制。例如确保固件更新的真实性和完整性的流程。
 - **检测**：检测平台固件代码和关键数据何时已被损坏的机制。
@@ -15,15 +8,13 @@ NIST是National Institute of Standards and Technology（美国国家标准与技
 
 国内除了Intel/AMD和鲲鹏平台，其他在这三方面做得都有很多不足。甚至， **在BIOS代码本身支持的情况下，作为保护和检测方面一个最重要的技术要素：安全启动，在大部分国产平台居然是关闭的**。
 
-这就引出了今天的主题：安全启动关闭，UEFI CA证书被美国微软公司掌控的问题是不是就不存在了，或者至少缓解了？我这篇有点争议的文章《微软掌控的UEFI CA，正在卡国产供应链脖子》让更多的朋友意识到UEFI CA的主权问题。但颇具讽刺的是，国产大部分计算机平台，BIOS安全启动默认关闭的。这似乎暗示着，UEFI CA的主权问题因为该功能关闭，不需要急着解决。是这样的吗？
+这就引出了今天的主题：安全启动关闭，UEFI CA证书被美国微软公司掌控的问题是不是就不存在了，或者至少缓解了？国产大部分计算机平台，BIOS安全启动默认关闭的。这似乎暗示着，UEFI CA的主权问题因为该功能关闭，不需要急着解决。是这样的吗？
 
 不幸的是，情况恰恰相反。因为国内BIOS糟糕的韧性现状，我们更需要默认打开安全启动，并启用国产CA，而不是相反。正如不能因噎废食一样，不能因为UEFI CA在美国而造成的问题，而关闭安全启动，从而形成更大的安全敞口。这也是我在前文呼吁建立主权CA的主因。
 
-今天，我将从原理和漏洞实例来讲讲，为什么关闭安全，反而增加了风险敞口；并用生活中的例子来类比一下，以方便大家的理解。Enjoy！
+今天，我将从原理和漏洞实例来讲讲，为什么关闭安全，反而增加了风险敞口；并用生活中的例子来类比一下，以方便大家的理解。
 
 ## 为什么微软强制Windows驱动签名？
-
-Windows 11要求打开BIOS安全启动，很多人从阴谋论的角度理解。我们换一个角度，微软更早就已经要求所有底层驱动必须签名，才能被加载，为什么？
 
 近年来，Windows生态的安全态势有明显改善，背后的主要原因之一正是微软对驱动签名的强制要求。凡是在Windows上加载驱动（无论是内核级还是用户级），都必须由微软签名。这一严格控制让黑客的空间大幅压缩，传统的Rootkit、驱动植入攻击频频受挫。以前黑客只要拿到admin权限，就能加载非法驱动植入后门。但现在他们发现，无论写什么“.sys”，必须是签名才会被加载。也就是说，正是签名，让Windows的攻击面变窄了，增强了安全性。
 
@@ -31,16 +22,9 @@ Windows 11要求打开BIOS安全启动，很多人从阴谋论的角度理解。
 
 但与此同时，这让传统Rootkit、恶意驱动插入变得异常困难。黑客做了一个聪明选择：将目光从“OS 之上”转移到“固件之下”。他们意识到，固件层面的方法几乎能绕过所有操作系统级别的防护，还能极难清除。 **他们攻击的第一步会是什么？你猜对了，就是想办法关闭或者绕过（Bypass）BIOS安全启动，从而可以加载恶意代码**。
 
-2025年6月，Binarly研究团队披露了影响绝大多数支持UEFI Secure Boot的设备的重大漏洞CVE‑2025‑3052：一个由“Microsoft Corporation UEFI CA 2011”签名的BIOS刷写工具，通过不安全地读取和写入NVRAM变量，攻击者能在系统启动阶段就执行 **未签名的** 代码，从底层彻底绕过安全启动机制[2]。攻击者只需具备操作系统中管理员权限，就能植入Bootkit，无论重装系统都难以剔除。简而言之，Windows层面再强也没用，被“拿掉桥墩”一样，整个系统重新铺设。
+2025年6月，Binarly研究团队披露了影响绝大多数支持UEFI Secure Boot的设备的重大漏洞CVE‑2025‑3052：一个由“Microsoft Corporation UEFI CA 2011”签名的BIOS刷写工具，通过不安全地读取和写入NVRAM变量，攻击者能在系统启动阶段就执行 **未签名的** 代码，从底层彻底绕过安全启动机制。攻击者只需具备操作系统中管理员权限，就能植入Bootkit，无论重装系统都难以剔除。简而言之，Windows层面再强也没用，被“拿掉桥墩”一样，整个系统重新铺设。
 
-另一项名为“Hydroph0bia”的漏洞（CVE‑2025‑4275）则集中于Insyde H2O固件中，一个未经保护的NVRAM变量允许注入恶意证书，攻击者可借此伪装自己的固件模块被“认可”，再次成功绕过Secure Boot[3]。
-
-其他，还有：
-
-- PKfail[4]
-- CVE-2024-7344[5]
-- LogoFAIL[6]
-- TrickBoot[7]（TrickBot 进化版）
+另一项名为“Hydroph0bia”的漏洞（CVE‑2025‑4275）则集中于Insyde H2O固件中，一个未经保护的NVRAM变量允许注入恶意证书，攻击者可借此伪装自己的固件模块被“认可”，再次成功绕过Secure Boot。其他还有PKfail、CVE-2024-7344、LogoFAIL以及TrickBoot（TrickBot 进化版）等漏洞。
 
 这些攻击有个明显的共性特征：攻击者不再绕过签名机制，而是“破解策略”、“劫持信任链”。安全启动本来应该是连通固件和操作系统的信任桥梁，一旦桥墩被篡改，签名也失效，防护机制形同虚设。更糟的是，如果我们主动默认关闭安全启动，则给黑客省事了，只会让攻击链更加简化。这类攻击进入几乎零成本模式。攻击者不再需签名，也无需突破签名链，固件写入直接执行，无视系统重装或外部恢复机制。那么关闭安全启动，具体能造成哪些安全风险呢？为了说清楚，我想先说说，国产平台在防护方面的缺失。
 
@@ -58,7 +42,7 @@ Windows 11要求打开BIOS安全启动，很多人从阴谋论的角度理解。
 
 关闭安全启动，还会让物理攻击变得极其危险。攻击者可以通过携带恶意 U盘或定制 PCIe 板卡（内含恶意 Option ROM）注入启动时载入的固件，从根本上篡改系统。许多现代设备将 PCIe 扩展 ROM 的签名校验交给 安全启动，如果关闭安全启动，系统将自动加载这些未经授权或植入恶意代码的设备固件 。实践中，研究者曾证明，恶意 PCIe 板卡可以在开机时就注入自身 ROM，并在操作系统启动前执行任意代码，捕获 BIOS ESP 内容、网络凭证或打开远程访问渠道。
 
-在 Apple 平台也曾出现相关病毒测试（如 Thunderstrike 2），扩展到 USB-to-Ethernet 转接器甚至可跨性传播[8]。如果安全启动不开启，这类物理注入攻击将普遍适用于 PC 平台。比如黑客将带有恶意 Option ROM 的 NVMe 板卡插入服务器，在下一次启动时就能完成篡改，再也不需要用户权限，就能实现“Air‑gapped”（隔离网络）目标系统的内置后门。
+在 Apple 平台也曾出现相关病毒测试（如 Thunderstrike 2），扩展到 USB-to-Ethernet 转接器甚至可跨性传播。如果安全启动不开启，这类物理注入攻击将普遍适用于 PC 平台。比如黑客将带有恶意 Option ROM 的 NVMe 板卡插入服务器，在下一次启动时就能完成篡改，再也不需要用户权限，就能实现“Air‑gapped”（隔离网络）目标系统的内置后门。
 
 ## CA和安全启动的一个类比
 
@@ -72,26 +56,4 @@ Windows 11要求打开BIOS安全启动，很多人从阴谋论的角度理解。
 
 看到这里，相信朋友们可以得出结论了：因为国产平台大多数平台安全启动默认关闭，“坏事变好事”，从而对CA问题掉以轻心的思想不太可取。我们其实更应该要求打开安全启动，同时应用主权CA。
 
-更进一步，孙子云：“求其上，得其中；求其中，得其下；求其下，必败。”我们应该跨前一步，提出类似NIST SP 800-193[1]的固件韧性标准，提出更多要求，才能“取乎其上，得乎其中”，建立更具韧性的中国固件安全链条。
-
-最后说点别的，你知道最通俗的UEFI安全启动定制文档是谁提供的吗？不是UEFI Forum那个有点晦涩的文档，而是美国NSA（National Security Agency，美国国家安全局），它的文档[9]非常浅显易懂，从侧面反映了美国认为这个问题事关国家安全，我们为什么不行动起来呢？
-
-## 参考
-
-[1]. NIST SP 800-193. https://nvlpubs.nist.gov/nistpubs/SpecialPublications/NIST.SP.800-193.pdf.
-
-[2]. Binarly.io. https://www.binarly.io/blog/another-crack-in-the-chain-of-trust.
-
-[3]. CVE-2025-427. https://eclypsium.com/blog/hydrophobia-secure-boot-bypass-vulnerabilities/.
-
-[4]. PKfail. https://www.binarly.io/blog/pkfail-untrusted-platform-keys-undermine-secure-boot-on-uefi-ecosystem.
-
-[5]. CVE-2024-7344. https://msrc.microsoft.com/update-guide/vulnerability/CVE-2024-7344.
-
-[6]. LogoFAIL. https://www.binarly.io/blog/the-far-reaching-consequences-of-logofail.
-
-[7]. TrickBoot. https://www.wired.com/2015/08/researchers-create-first-firmware-worm-attacks-macs.
-
-[8]. apple firmware atttak. https://www.wired.com/2015/08/researchers-create-first-firmware-worm-attacks-macs/.
-
-[9]. UEFI-Secure-Boot-Customization. https://media.defense.gov/2020/Sep/15/2002497594/-1/-1/0/CTR-UEFI-Secure-Boot-Customization-UOO168873-20.PDF.
+更进一步，孙子云：“求其上，得其中；求其中，得其下；求其下，必败。”我们应该跨前一步，提出类似NIST SP 800-193的固件韧性标准，提出更多要求，才能“取乎其上，得乎其中”，建立更具韧性的中国固件安全链条。
