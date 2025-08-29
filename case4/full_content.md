@@ -1,23 +1,335 @@
-# 全氟和多氟烷基物质及其对饮用水影响
+# Java 中如何使用 MapStruct 进行对象映射？
 
-## 什么是全氟和多氟烷基物质？
-PFAS是人工合成的一类有机氟化合物，具有高化学和热稳定性、防水防油性。这使得许多PFAS 成为有效的表面活性剂或表面保护剂，自 20 世纪 40 年代末起被广泛用于商业和消费领域。虽然你可能没听过这个名词，但你家的不粘锅、快餐盒、防水外套、化妆品甚至牙线都曾经与它有关。
+MapStruct 是一款基于注解的、用于 Java 对象映射的代码生成器。借助 MapStruct，我们做对象转换时，只需按照约定指定映射关系，真正的逐字段映射交给 MapStruct 去做即可，可以省去大量手工代码的编写。而且，MapStruct 是在编译期生成映射代码，若有字段类型不一致的映射，会提前报错，其生成的代码更加安全可靠。再者，MapStruct 生成的代码的执行性能与我们手工编写的代码无异，远优于市面上流行的几款基于反射的映射框架（如 BeanUtils、ModelMapper 等）。
 
-虽然这类化学物质有很多的好处，但它的稳定性也成了环境治理的梦魇。PFAS分子中的碳-氟键极其稳定，不易分解，因此它们一旦进入环境，几乎永远不会消失，被称为永远的化学品（forever chemicals）。几十年来，PFAS悄然渗入土壤、水体甚至人体血液——在一些污染严重地区，饮用水中PFAS的浓度已远超安全限值。
+本文即以常见的基于 Maven 管理的 Java 项目为基础，以实际项目中的 VO（值对象）到 DTO（数据传输对象）的转换为例来演示 MapStruct 的常用功能和使用方式。
 
-流行病学研究发现，接触 PFAS（尤其是全氟辛烷磺酸 (PFOS) 和 PFOA）与健康问题之间存在联系，包括胆固醇和肝酶升高、睾丸癌和肾癌发病率上升、生育能力下降、溃疡性结肠炎、妊娠高血压、免疫抑制和甲状腺疾病等。接触大量 PFAS 会导致女性成功怀孕的能力下降 40%，以及激素紊乱和青春期发育延迟。孕妇和哺乳期母亲使用各种个人护理产品，例如指甲护理产品、香水、化妆品、染发剂和发胶，与母亲血液和母乳中 PFAS 含量显著升高相关。
+写作本文时，用到的 Java、MapStruct、Lombok 的版本如下：
 
-2009 年和 2019 年，PFOS 和 PFOA （全氟辛酸PFOA，全氟辛烷磺PFOS）分别被列入《斯德哥尔摩公约》附件 B 和附件 A，作为持久性有机污染物 (POP)，但有一系列豁免允许进一步使用。尽管越来越多的国家禁止使用 PFOS 和PFOA ，但近年来，世界各地的饮用水中仍频繁检测到它们，例如在美国、日本、加纳、土耳其、澳大利亚和中国。全球范围内 PFAS 的主要污染来源及其浓度分布特征。PFAS的污染来源可大致分为泡沫灭火剂(AFFF)、氟相关工业生产(FIP)及城市废水处理设施(WWTPs)。
+Java: 17
+MapStruct: 1.6.3
+Lombok: 1.18.38
 
-PFAS会进入自然循环，并通过食物链传导至自然界的植物和动物体内。
+## 1 引入 Maven 依赖
 
+开始前，需要在 pom.xml 引入相应的依赖。本示例工程为了省去编写 POJO 类冗长的 Setters 和 Getters，使用了 Lombok。
 
-## 中国饮用水中的PFAS污染情况
+我们知道，Lombok 是在编译期生成代码的，而 MapStruct 也是在编译期生成代码的。所以两者应该有个先后顺序，Lombok 的代码生成要在 MapStruct 的代码生成之前执行，否则 MapStruct 会在设置字段时因找不到对应的 Setters 或 Getters 而报错。因此，除了引入 Lombok 和 MapStruct 依赖外，我们还在 maven-compiler-plugin 的 annotationProcessorPaths 部分指定了两者的处理顺序。
 
-一项研究审查了66个城市526份饮用水样本中共18种PFASs的数据。中国饮用水中PFAS平均值范围为0.1-502.9ng/L，饮用水中PFASs污染最严重的前10个城市依次为自贡（502.9 ng/L）、连云港市（332.6 ng/L）、常熟市（122.4 ng/L）、成都（119.4 ng/L）、无锡市（93.6 ng/L）、杭州市（74.1 ng/L）、南宁市（64.1 ng/L）、苏州市（61.3 ng/L）、昆明市（60.4 ng/L）和巢湖市（59.9 ng/L）。
+```xml
+<properties>
+    <java.version>17</java.version>
+    <lombok.version>1.18.38</lombok.version>
+    <mapstruct.version>1.6.3</mapstruct.version>
+</properties>
 
-中国健康咨询值 PFOA 85 ng/L 和 PFOS 47 ng/L， 66个城市中，有24个城市的RQ均值在0.1~1之间，根据中国国家标准，表明饮用水的健康风险为中等。其余39个城市的RQ值小于0.1，风险可忽略不计。
+<dependencies>
+    <dependency>
+        <groupId>org.projectlombok</groupId>
+        <artifactId>lombok</artifactId>
+        <version>${lombok.version}</version>
+        <scope>provided</scope>
+    </dependency>
+    <dependency>
+        <groupId>org.mapstruct</groupId>
+        <artifactId>mapstruct</artifactId>
+        <version>${mapstruct.version}</version>
+    </dependency>
+</dependencies>
 
-空间风险分布显示， 由于上述氟化工厂的存在、人口密度高以及造纸、纺织和皮革工业的密集发展，华东和西南地区的风险显著高于其他地区（p < 0.05）。中国成年人 PFOA 和 PFOS 的TDI平均值估算值分别为 0 至 121.7 ng/kg/天和 0 至 61.43 ng/kg/天。
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-compiler-plugin</artifactId>
+            <version>3.14.0</version>
+            <configuration>
+                <source>${java.version}</source>
+                <target>${java.version}</target>
+                <annotationProcessorPaths>
+                    <path>
+                        <groupId>org.projectlombok</groupId>
+                        <artifactId>lombok</artifactId>
+                        <version>${lombok.version}</version>
+                    </path>
+                    <path>
+                        <groupId>org.projectlombok</groupId>
+                        <artifactId>lombok-mapstruct-binding</artifactId>
+                        <version>0.2.0</version>
+                    </path>
+                    <path>
+                        <groupId>org.mapstruct</groupId>
+                        <artifactId>mapstruct-processor</artifactId>
+                        <version>${mapstruct.version}</version>
+                    </path>
+                </annotationProcessorPaths>
+            </configuration>
+        </plugin>
+    </plugins>
+</build>
+```
+## 2 基础用法
 
-事实上，中国作为PFAS的生产和使用大国，也面临很高的PFAS暴露风险。虽然全球多国都在推动无氟产品的生产，但已经释放进入环境中的氟化物污染的治理和处理仍没有得到重视和解决。
+依赖引入好后，下面就可以开始对 MapStruct 进行使用了。本小节先看一下 MapStruct 的基础用法，下个小节再探索其高级功能。
+
+我们实现的场景是 VO 到 DTO 的转换。
+
+下面就是 User VO 的源码，其拥有 id、email、name、yearOfBirth、role 和 createdAt 六个属性。除了 role 为枚举类型外，其它均为基础类型。
+
+```java
+package com.example.demo.vo;
+
+@Data
+public class User {
+
+    private Long id;
+    private String email;
+    private String name;
+    private Integer yearOfBirth;
+    private Role role;
+    private Date createdAt;
+}
+```
+
+```java
+package com.example.demo.vo;
+
+public enum Role {
+    NORMAL,
+    ADMIN
+}
+```
+
+下面是 User VO 的目标对象 UserDto 的源码。UserDto 除了和 User 拥有完全相同的字段 id 和 email 外，其它字段要么是名字相同但类型不同（如 role、createdDate）、要么是类型相同但名字不同（如 username）、要么是全新的字段（如 age、newCenturyUser）。
+
+```java
+package com.example.demo.dto;
+
+@Data
+public class UserDto {
+
+    private Long id;
+    private String email;
+    private String username;
+    private Integer age;
+    private Boolean newCenturyUser;
+    private String role;
+    private LocalDateTime createdDate;
+}
+```
+
+下面即使用 MapStruct 来为 User 到 UserDto 的转换做映射。
+
+可以看到，我们需要定义一个专门做转换的接口 UserMapper，并在其上配置 @Mapper 注解，然后在接口中定义一个 User 到 UserDto 的转换方法 toUserDto()。
+
+接下来就是字段级的映射配置了：
+
+- id 和 email 字段在两个 POJO 中完全相同，无需配置，MapStruct 会自动帮我们做映射。
+- name 到 username 的映射，因名称发生了变化，需要使用 @Mapping 注解来指定源字段和目的字段的对应关系。
+- yearOfBirth 到 age 的映射，因字段意义发生变化，需要进行计算。可通过在 UserMapper 接口定义一个默认方法 calculateAge，然后在 @Mapping 映射中使用 qualifiedByName 指定该实现方法来达成。
+- role 字段在源对象中是枚举类型，而在目的对象中是 String 类型，我们无需做处理，MapStruct 会自动帮我们将枚举的 name() 值设置到目标字段。
+- newCenturyUser 是目标对象的一个新字段，其需基于源对象的 yearOfBirth 字段进行计算，可以通过指定一个表达式（expression）来达成。
+- 源字段的 createdAt 是 Date 类型，目的字段的 createdDate 是 LocalDateTime 类型，可以通过引入一个两者转换的 Util 类或其它 Mapper 来达成（这里引入了 DateTimeUtil 工具类，且在 @Mapping 映射中未指定任何方法，因为 MapStruct 会自动帮我们检测适用的方法并调用）。
+
+```java
+package com.example.demo.mapper;
+
+@Mapper(uses = DateTimeUtil.class)
+public interface UserMapper {
+
+    UserMapper INSTANCE = Mappers.getMapper(UserMapper.class);
+
+    @Mapping(source = "name", target = "username")
+    @Mapping(source = "yearOfBirth", target = "age", qualifiedByName = "calculateAge")
+    @Mapping(target = "newCenturyUser", expression = "java(user.getYearOfBirth() >= 2000)")
+    @Mapping(source = "createdAt", target = "createdDate")
+    UserDto toUserDto(User user);
+
+    @Named("calculateAge")
+    default Integer calculateAge(Integer yearOfBirth) {
+        Calendar calendar = Calendar.getInstance();
+        return calendar.get(Calendar.YEAR) - yearOfBirth;
+    }
+}
+```
+
+下面即是 DateTimeUtil 工具类的源码：
+
+```java
+package com.example.demo.util;
+
+public class DateTimeUtil {
+
+    public LocalDateTime asLocalDateTime(Date date) {
+        if (null == date) {
+            return null;
+        }
+
+        return date.toInstant()
+                .atZone(ZoneId.systemDefault())
+                .toLocalDateTime();
+    }
+}
+```
+
+可以看到，MapStruct 的使用还是比较简单的：名称与类型完全相同的字段无需任何额外配置；类型相同但名称不同的字段则只需指定 source 和 target 即可；需要额外计算的字段，可以通过编写表达式或引入其它 Mapper 或工具类来实现。
+
+使用 mvn clean package 命令将工程编译后会发现 MapStruct 在 target/classes 目录对应位置根据我们的要求自动生成了 UserMapper 的实现类 UserMapperImpl。
+
+**MapStruct 自动生成的实现类**
+
+最后，我们编写一个单元测试类来对上述 Mapper 进行一下测试。
+
+```java
+package com.example.demo.mapper;
+
+public class UserMapperTest {
+
+    @Test
+    public void testToUserDto() {
+        User user = new User();
+        user.setId(1L);
+        user.setEmail("larry@larry.com");
+        user.setName("Larry");
+        user.setYearOfBirth(2000);
+        user.setRole(Role.NORMAL);
+        user.setCreatedAt(new Date());
+
+        UserDto userDto = UserMapper.INSTANCE.toUserDto(user);
+        System.out.println(userDto);
+    }
+}
+```
+
+执行 mvn clean test 命令运行如上单元测试后发现打印的目标对象 UserDto 的字段值与预期一致。
+
+```
+UserDto(id=1, email=larry@larry.com, username=Larry, age=25, newCenturyUser=true, role=NORMAL, createdDate=2025-08-28T08:30:10.568)
+```
+
+## 3 进阶用法
+
+### 3.1 多个源对象到一个目的对象的映射
+
+若想将多个源对象映射到一个目的对象，@Mapping 配置也很直观。
+
+```java
+package com.example.demo.mapper;
+
+@Mapper
+public interface CustomerMapper {
+
+    @Mapping(source = "customer.name", target = "name")
+    @Mapping(source = "customer.yearOfBirth", target = "yearOfBirth")
+    @Mapping(source = "address.province", target = "province")
+    @Mapping(source = "address.city", target = "city")
+    @Mapping(source = "address.street", target = "street")
+    CustomerDto toCustomerDto(Customer customer, Address address);
+}
+```
+
+### 3.2 嵌套对象和集合对象映射
+
+如果对象之间有嵌套，或者是集合对象，MapStruct 也能很好的胜任对应的转换。
+
+```java
+package com.example.demo.vo;
+
+@Data
+public class School {
+
+    private String name;
+    private List<Student> students;
+}
+```
+
+```java
+package com.example.demo.dto;
+
+@Data
+public class SchoolDto {
+
+    private String name;
+    private List<StudentDto> students;
+}
+```
+
+```java
+package com.example.demo.mapper;
+
+@Mapper
+public interface SchoolMapper {
+
+    SchoolDto toSchoolDto(School school);
+
+    List<SchoolDto> toSchoolDtos(List<School> schools);
+}
+```
+
+### 3.3 逆向映射
+
+若已定义过 User 到 UserDto 的映射，现在想做 UserDto 到 User 的转换怎么办？使用 @InheritInverseConfiguration 注解可以自动 generate反向映射规则，避免重复定义。
+
+```java
+package com.example.demo.mapper;
+
+@Mapper
+public interface UserMapper {
+
+    // @Mapping(xxx)
+    UserDto toUserDto(User user);
+
+    @InheritInverseConfiguration
+    User toUser(UserDto userDto);
+}
+```
+
+### 3.4 默认值和常量
+
+还可以为映射提供默认值或常量。下面的示例中：当 User 的 name 字段为 null 时，MapStruct 即会为目标字段赋上默认值 Unknown；此外，还可以为目标对象中 String 类型的 level 字段赋上常量值 PRIMARY。
+
+```java
+package com.example.demo.mapper;
+
+@Mapper
+public interface UserMapper {
+
+    @Mapping(source = "name", target = "username", defaultValue = "Unknown")
+    @Mapping(target = "level", constant = "PRIMARY")
+    UserDto toUserDto(User user);
+}
+```
+
+## 4 如何与 Spring 框架集成？
+
+欲将 MapStruct 与 Spring 集成的话，只需在 Mapper 的 @Mapper 注解上加上 componentModel = "spring" 即可。
+
+```java
+package com.example.demo.mapper;
+
+@Mapper(componentModel = "spring")
+public interface UserMapper {
+}
+```
+
+这样，即可取代上面的 UserMapper.INSTANCE 的方式，而直接使用 @Autowired 注解将 UserMapper 进行注入并使用了。
+
+```java
+package com.example.demo.mapper;
+
+public class UserMapperTest {
+
+    @Autowired
+    private UserMapper userMapper;
+
+    @Test
+    public void testToUserDto() {
+        // ...
+        UserDto userDto = userMapper.toUserDto(user);
+    }
+}
+```
+
+## 5 小结
+
+综上，本文首先对 MapStruct 工具进行了介绍，然后创建了一个 Maven 示例工程，并将 MapStruct 和 Lombok 依赖引入；然后以实际项目中的 VO 到 DTO 转换为例，介绍了 MapStruct 的基础功能和高级功能；最后还介绍了 MapStruct 与 Spring 框架的集成。总体上感觉 MapStruct 还是比较易用且高效的。
